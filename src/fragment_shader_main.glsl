@@ -1,3 +1,29 @@
+vec3 getTexturePattern(vec3 p, MaterialProperties mat) {
+    float pattern = 0.0;
+    float scale = mat.textureScale;
+    
+    // Mix different texture patterns based on material properties
+    if(mat.texturePattern < 0.2) {
+        // Noise texture
+        pattern = fbm(p * scale);
+    } else if(mat.texturePattern < 0.4) {
+        // Stripes
+        pattern = stripePattern(p, scale);
+    } else if(mat.texturePattern < 0.6) {
+        // Checkers
+        pattern = checkersPattern(p, scale);
+    } else if(mat.texturePattern < 0.8) {
+        // Voronoi cells
+        pattern = voronoiNoise(p * scale);
+    } else {
+        // Hexagon pattern
+        pattern = hexagonPattern(p, scale);
+    }
+    
+    return vec3(pattern);
+}
+
+
 // Ray marching
 float rayMarch(vec3 ro,vec3 rd){
     float dO=0.;
@@ -14,34 +40,62 @@ float rayMarch(vec3 ro,vec3 rd){
 
 // Calculate normals
 vec3 getNormal(vec3 p){
-vec2 e=vec2(EPSILON,0.);
-ShapeVariations v=getVariations();
-return normalize(vec3(
-        sdEnhancedShape(p+e.xyy,v)-sdEnhancedShape(p-e.xyy,v),
-        sdEnhancedShape(p+e.yxy,v)-sdEnhancedShape(p-e.yxy,v),
-        sdEnhancedShape(p+e.yyx,v)-sdEnhancedShape(p-e.yyx,v)
-    ));
+    vec2 e=vec2(EPSILON,0.);
+    ShapeVariations v=getVariations();
+    return normalize(vec3(
+            sdEnhancedShape(p+e.xyy,v)-sdEnhancedShape(p-e.xyy,v),
+            sdEnhancedShape(p+e.yxy,v)-sdEnhancedShape(p-e.yxy,v),
+            sdEnhancedShape(p+e.yyx,v)-sdEnhancedShape(p-e.yyx,v)
+        ));
 }
     
 // Lighting calculation
-vec3 lighting(vec3 p,vec3 n,vec3 rd){
-    ShapeVariations v=getVariations();
+vec3 lighting(vec3 p, vec3 n, vec3 rd) {
+    ShapeVariations v = getVariations();
+    MaterialProperties mat = getMaterialProperties(v);
     
-    vec3 light_pos=vec3(2.,4.,-3.);
-    vec3 light_color=vec3(1.,.95,.8);
+    vec3 light_pos = vec3(2., 4., -3.);
+    vec3 light_color = vec3(1., .95, .8);
     
-    vec3 view_dir=-rd;
-    vec3 light_dir=normalize(light_pos-p);
-    vec3 half_dir=normalize(light_dir+view_dir);
+    vec3 view_dir = -rd;
+    vec3 light_dir = normalize(light_pos - p);
+    vec3 half_dir = normalize(light_dir + view_dir);
     
-    float diff=max(dot(n,light_dir),0.);
-    float spec=pow(max(dot(n,half_dir),0.),32.);
+    // Basic lighting
+    float diff = max(dot(n, light_dir), 0.0);
+    float spec = pow(max(dot(n, half_dir), 0.0), 32.0) * mat.specularStrength;
     
-    vec3 ambient=base_color*.2;
-    vec3 diffuse=base_color*light_color*diff;
-    vec3 specular=light_color*spec*(1.-v.roughness);
+    // Fresnel/rim lighting
+    float rim = pow(1.0 - max(dot(n, view_dir), 0.0), 4.0) * mat.rimLight;
     
-    return ambient+diffuse+specular;
+    // Get texture pattern
+    vec3 pattern = getTexturePattern(p, mat);
+    
+    // Combine colors
+    vec3 ambient = base_color * 0.2;
+    vec3 diffuse = base_color * light_color * diff;
+    vec3 specular = light_color * spec * (1.0 - mat.roughness);
+    vec3 rim_color = light_color * rim;
+    
+    // Mix with texture pattern
+    vec3 color = mix(
+        ambient + diffuse + specular + rim_color,
+        pattern * diffuse,
+        mat.textureMix
+    );
+    
+    // Metallic reflection
+    if(mat.metallic > 0.0) {
+        vec3 refl = reflect(rd, n);
+        vec3 refl_color = vec3(
+            fbm(refl * 2.0),
+            fbm(refl * 2.1),
+            fbm(refl * 2.2)
+        );
+        color = mix(color, refl_color, mat.metallic);
+    }
+    
+    return color;
 }
 
 // Main function
@@ -67,20 +121,24 @@ void main(){
     
     float d=rayMarch(ro,rd);
     
-    if(d>MAX_DIST-EPSILON){
+    if(d>MAX_DIST-EPSILON) {
         color = vec4(0.0, 0.0, 0.0, 0.0);
-    }else{
-        vec3 p=ro+rd*d;
-        vec3 n=getNormal(p);
-        vec3 col=lighting(p,n,rd);
+    } else {
+        vec3 p = ro + rd * d;
+        vec3 n = getNormal(p);
+        vec3 col = lighting(p, n, rd);
         
-        // Apply fog
-        float fog=1.-exp(-d*.1);
-        col=mix(col,vec3(.1),fog);
+        // Make alpha dependent on the material
+        float alpha = 1.0;
+        MaterialProperties mat = getMaterialProperties(getVariations());
+        if(mat.metallic > 0.5) {
+            alpha = 0.8; // Make metallic materials slightly transparent
+        }
         
         // Apply gamma correction
-        col=pow(col,vec3(1./2.2));
+        col = pow(col, vec3(1./2.2));
         
-        color=vec4(col,0.0);
+        color = vec4(col, alpha);
     }
+
 }

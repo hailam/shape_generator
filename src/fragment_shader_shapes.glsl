@@ -74,6 +74,30 @@ ShapeVariations getVariations(){
     return vars;
 }
 
+struct MaterialProperties {
+    float metallic;
+    float roughness;
+    float textureMix;
+    float textureScale;
+    float texturePattern;
+    float normalStrength;
+    float rimLight;
+    float specularStrength;
+};
+
+MaterialProperties getMaterialProperties(ShapeVariations v) {
+    MaterialProperties mat;
+    mat.metallic = v.metallic;
+    mat.roughness = v.roughness;
+    mat.textureMix = v.extra_param1;
+    mat.textureScale = 2.0 + v.extra_param2 * 8.0;
+    mat.texturePattern = v.extra_param3;
+    mat.normalStrength = 0.2 + v.extra_param4 * 0.8;
+    mat.rimLight = v.emission;
+    mat.specularStrength = 1.0 - v.roughness;
+    return mat;
+}
+
 // Start of SDF primitives
 float sdSphere(vec3 p,float r){
     return length(p)-r;

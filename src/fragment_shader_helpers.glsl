@@ -59,4 +59,57 @@ float noise(vec3 p){
         f.z
     );
 }
+
+float voronoiNoise(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    
+    float minDist = 1.0;
+    
+    for(int z = -1; z <= 1; z++) {
+        for(int y = -1; y <= 1; y++) {
+            for(int x = -1; x <= 1; x++) {
+                vec3 neighbor = vec3(float(x), float(y), float(z));
+                vec3 point = neighbor + rand(i + neighbor) - f;
+                float dist = length(point);
+                minDist = min(minDist, dist);
+            }
+        }
+    }
+    
+    return minDist;
+}
+
+float fbm(vec3 p) {
+    float value = 0.0;
+    float amplitude = 0.5;
+    float frequency = 1.0;
+    
+    for(int i = 0; i < 5; i++) {
+        value += amplitude * noise(p * frequency);
+        amplitude *= 0.5;
+        frequency *= 2.0;
+    }
+    
+    return value;
+}
+
+// Texture patterns
+float stripePattern(vec3 p, float frequency) {
+    return step(0.5, fract(dot(p, vec3(1.0)) * frequency));
+}
+
+float checkersPattern(vec3 p, float frequency) {
+    vec3 q = floor(p * frequency);
+    return mod(q.x + q.y + q.z, 2.0);
+}
+
+float hexagonPattern(vec3 p, float scale) {
+    vec3 q = p * scale;
+    vec2 h = vec2(0.866025404, 0.5);
+    vec2 a = mod(q.xz, 3.0 * h) - 1.5 * h;
+    vec2 b = mod(q.xz + h, 3.0 * h) - 1.5 * h;
+    return min(length(a), length(b));
+}
+
 // end of noise functions

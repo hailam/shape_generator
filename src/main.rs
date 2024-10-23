@@ -61,34 +61,114 @@ fn safe_hash_value(hash: &str, start: usize, length: usize, default: u8) -> u8 {
 fn derive_shape_parameters(
     hash: &str,
 ) -> (f32, f32, f32, [f32; 3], [f32; 16], [f32; 16], [f32; 8]) {
-    // Basic parameters with safe defaults
+    // Get basic shape type first as it will influence other parameters
     let shape_type = (safe_hash_value(hash, 0, 2, 128) as f32 / 255.0) * 40.0;
-    let scale = 1.0 + (safe_hash_value(hash, 2, 2, 128) as f32 / 255.0);
-    let rotation = safe_hash_value(hash, 4, 2, 128) as f32 * 360.0 / 255.0;
+    let shape_index = shape_type as usize;
 
-    // Colors with safe defaults
-    let r = safe_hash_value(hash, 6, 2, 128) as f32 / 255.0;
-    let g = safe_hash_value(hash, 8, 2, 128) as f32 / 255.0;
-    let b = safe_hash_value(hash, 10, 2, 128) as f32 / 255.0;
+    // Create dramatically different scale ranges based on shape type
+    let scale_raw = safe_hash_value(hash, 2, 2, 128) as f32 / 255.0;
+    let scale = match shape_index % 5 {
+        0 => 0.3 + scale_raw * 0.7,                   // Smaller variations
+        1 => 1.0 + scale_raw * 2.0,                   // Larger variations
+        2 => 0.5 + scale_raw * scale_raw * 3.0,       // Exponential scaling
+        3 => 1.0 / (0.5 + scale_raw),                 // Inverse scaling
+        _ => 0.8 + (scale_raw - 0.5).powf(3.0) * 2.0, // Cubic scaling
+    };
+
+    // Varied rotation patterns
+    let rot_base = safe_hash_value(hash, 4, 2, 128) as f32 / 255.0;
+    let rotation = match shape_index % 4 {
+        0 => rot_base * 720.0,                                // Double rotation
+        1 => rot_base * rot_base * 360.0,                     // Quadratic rotation
+        2 => (rot_base * std::f32::consts::PI).sin() * 360.0, // Sinusoidal
+        _ => rot_base * 360.0,                                // Linear rotation
+    };
+
+    // More varied color generation
+    let hue = safe_hash_value(hash, 6, 2, 128) as f32 / 255.0;
+    let sat = 0.5 + (safe_hash_value(hash, 8, 2, 128) as f32 / 255.0) * 0.5;
+    let val = 0.4 + (safe_hash_value(hash, 10, 2, 128) as f32 / 255.0) * 0.6;
+    let [r, g, b] = hsv_to_rgb(hue, sat, val);
 
     let mut variations1 = [0.0; 16];
     let mut variations2 = [0.0; 16];
     let mut variations3 = [0.0; 8];
 
-    // Fill variations with safe values
+    // Shape-specific variation patterns
+    let shape_category = shape_index / 5; // Group shapes into categories
+
+    // Fill variations1 with shape-dependent distributions
     for i in 0..16 {
-        let start = 12 + i * 2;
-        variations1[i] = safe_hash_value(hash, start, 2, 128) as f32 / 255.0;
+        let base = safe_hash_value(hash, 12 + i * 2, 2, 128) as f32 / 255.0;
+
+        variations1[i] = match shape_category {
+            0 => {
+                // Geometric primitives (spheres, boxes, etc.)
+                match i {
+                    0..=2 => 0.5 + (base - 0.5).powf(3.0) * 2.0, // Dramatic size changes
+                    3..=4 => base * base * 3.0,                  // Strong deformation
+                    _ => base.powf(0.3),                         // Subtle other parameters
+                }
+            }
+            1 => {
+                // Complex shapes (fractals, etc.)
+                match i {
+                    0..=2 => 0.3 + base * 1.7,                  // Wide size range
+                    3..=6 => ((base * 6.28).sin() + 1.0) * 0.8, // Oscillating deformations
+                    _ => base.sqrt() * 2.0,                     // Moderate other params
+                }
+            }
+            2 => {
+                // Organic shapes
+                match i {
+                    0..=2 => 1.0 - (1.0 - base * base) * 0.8, // Inverse square scaling
+                    3..=8 => 0.2 + (base * std::f32::consts::PI).sin() * 0.8, // Sinusoidal variation
+                    _ => base.powf(1.5), // Enhanced other parameters
+                }
+            }
+            3 => {
+                // Mechanical shapes
+                match i {
+                    0..=2 => (base * 4.0).floor() / 3.0, // Quantized sizes
+                    3..=6 => base.powf(0.3) * 1.5,       // Strong deformations
+                    _ => 0.2 + base * 0.8,               // Linear other params
+                }
+            }
+            _ => {
+                // Abstract shapes
+                match i {
+                    0..=4 => ((base * 8.0).sin() + 1.0) / 2.0 * 2.0, // Highly oscillating
+                    5..=8 => base.powf(2.0) * 2.0,                   // Quadratic scaling
+                    _ => 0.3 + (base * base * base) * 0.7,           // Cubic other params
+                }
+            }
+        };
     }
 
+    // Fill variations2 with contrasting patterns
     for i in 0..16 {
-        let start = 44 + i * 2;
-        variations2[i] = safe_hash_value(hash, start, 2, 128) as f32 / 255.0;
+        let base = safe_hash_value(hash, 44 + i * 2, 2, 128) as f32 / 255.0;
+        let phase = base * std::f32::consts::PI * 2.0;
+
+        variations2[i] = match shape_category {
+            0 => 1.0 - variations1[i],             // Inverse of variations1
+            1 => (phase.sin() + 1.0) / 2.0 * 1.5,  // Sinusoidal
+            2 => base.powf(0.5) * 2.0,             // Square root
+            3 => (base * 4.0).floor() / 3.0,       // Quantized
+            _ => ((base * 6.0).sin() + 1.0) / 2.0, // High-frequency oscillation
+        };
     }
 
+    // Fill variations3 with fine detail modulations
     for i in 0..8 {
-        let start = 76 + i * 2;
-        variations3[i] = safe_hash_value(hash, start, 2, 128) as f32 / 255.0;
+        let base = safe_hash_value(hash, 76 + i * 2, 2, 128) as f32 / 255.0;
+        let multiplier = 1.0 + (shape_index as f32 * 0.1); // Shape-dependent scaling
+
+        variations3[i] = match i {
+            0..=2 => base.powf(0.3) * multiplier, // Stronger effect for higher indices
+            3..=5 => ((base * 8.0).sin() + 1.0) / 2.0 * multiplier,
+            _ => (0.2 + base * 0.8) * multiplier,
+        };
     }
 
     (
@@ -100,6 +180,25 @@ fn derive_shape_parameters(
         variations2,
         variations3,
     )
+}
+
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
+    let c = v * s;
+    let h = h * 6.0;
+    let x = c * (1.0 - ((h % 2.0) - 1.0).abs());
+    let m = v - c;
+
+    let (r, g, b) = match h as i32 {
+        0 | 6 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        5 => (c, 0.0, x),
+        _ => (0.0, 0.0, 0.0),
+    };
+
+    [r + m, g + m, b + m]
 }
 fn main() {
     let args = Cli::from_args();
