@@ -5,7 +5,7 @@ use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::glutin::window::WindowBuilder;
 use glium::uniforms::UniformBuffer;
 use glium::{glutin, implement_vertex, uniform, Surface};
-use sha2::{Digest, Sha256};
+//use sha2::{Digest, Sha256};
 use structopt::StructOpt;
 
 #[derive(StructOpt)]
@@ -42,14 +42,17 @@ fn create_full_screen_quad() -> (Vec<Vertex>, Vec<u16>) {
 }
 
 fn hash_input(input: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(input);
-    format!("{:x}", hasher.finalize())
+    //let mut hasher = Sha256::new();
+    //hasher.update(input);
+    //format!("{:x}", hasher.finalize())
+
+    let hash1 = blake3::hash(input.as_bytes());
+    hash1.to_hex().to_string()
 }
 
-fn safe_hash_value(hash: &str, start: usize, default: u8) -> u8 {
-    if start + 2 <= hash.len() {
-        u8::from_str_radix(&hash[start..start + 2], 16).unwrap_or(default)
+fn safe_hash_value(hash: &str, start: usize, length: usize, default: u8) -> u8 {
+    if start + length <= hash.len() {
+        u8::from_str_radix(&hash[start..start + length], 16).unwrap_or(default)
     } else {
         default
     }
@@ -59,14 +62,14 @@ fn derive_shape_parameters(
     hash: &str,
 ) -> (f32, f32, f32, [f32; 3], [f32; 16], [f32; 16], [f32; 8]) {
     // Basic parameters with safe defaults
-    let shape_type = (safe_hash_value(hash, 0, 128) as f32 / 255.0) * 40.0;
-    let scale = 1.0 + (safe_hash_value(hash, 2, 128) as f32 / 255.0);
-    let rotation = safe_hash_value(hash, 4, 128) as f32 * 360.0 / 255.0;
+    let shape_type = (safe_hash_value(hash, 0, 2, 128) as f32 / 255.0) * 40.0;
+    let scale = 1.0 + (safe_hash_value(hash, 2, 2, 128) as f32 / 255.0);
+    let rotation = safe_hash_value(hash, 4, 2, 128) as f32 * 360.0 / 255.0;
 
     // Colors with safe defaults
-    let r = safe_hash_value(hash, 6, 128) as f32 / 255.0;
-    let g = safe_hash_value(hash, 8, 128) as f32 / 255.0;
-    let b = safe_hash_value(hash, 10, 128) as f32 / 255.0;
+    let r = safe_hash_value(hash, 6, 2, 128) as f32 / 255.0;
+    let g = safe_hash_value(hash, 8, 2, 128) as f32 / 255.0;
+    let b = safe_hash_value(hash, 10, 2, 128) as f32 / 255.0;
 
     let mut variations1 = [0.0; 16];
     let mut variations2 = [0.0; 16];
@@ -75,17 +78,17 @@ fn derive_shape_parameters(
     // Fill variations with safe values
     for i in 0..16 {
         let start = 12 + i * 2;
-        variations1[i] = safe_hash_value(hash, start, 128) as f32 / 255.0;
+        variations1[i] = safe_hash_value(hash, start, 2, 128) as f32 / 255.0;
     }
 
     for i in 0..16 {
         let start = 44 + i * 2;
-        variations2[i] = safe_hash_value(hash, start, 128) as f32 / 255.0;
+        variations2[i] = safe_hash_value(hash, start, 2, 128) as f32 / 255.0;
     }
 
     for i in 0..8 {
         let start = 76 + i * 2;
-        variations3[i] = safe_hash_value(hash, start, 128) as f32 / 255.0;
+        variations3[i] = safe_hash_value(hash, start, 2, 128) as f32 / 255.0;
     }
 
     (
@@ -108,7 +111,8 @@ fn main() {
     let event_loop = EventLoop::new();
     let wb = WindowBuilder::new()
         .with_title("Shape Generator")
-        .with_inner_size(glutin::dpi::LogicalSize::new(800.0, 600.0));
+        .with_inner_size(glutin::dpi::LogicalSize::new(800.0, 600.0))
+        .with_transparent(true);
 
     let cb = glutin::ContextBuilder::new()
         .with_depth_buffer(24)
@@ -135,10 +139,19 @@ fn main() {
     )
     .expect("Failed to create index buffer");
 
+    // we need to combine the fragment_shader which is split into init, helpers, shapes and main into a single string
+    let fragment_shader = include_str!("fragment_shader_init.glsl").to_string()
+        + "\n"
+        + include_str!("fragment_shader_helpers.glsl")
+        + "\n"
+        + include_str!("fragment_shader_shapes.glsl")
+        + "\n"
+        + include_str!("fragment_shader_main.glsl");
+
     let program = glium::Program::from_source(
         &display,
         include_str!("vertex_shader.glsl"),
-        include_str!("fragment_shader.glsl"),
+        &fragment_shader,
         None,
     )
     .expect("Failed to create shader program");

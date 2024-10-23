@@ -1,95 +1,3 @@
-#version 140
-
-in vec3 v_position;
-out vec4 color;
-
-// Global constants
-const float MAX_DIST=100.;
-const float EPSILON=.001;
-const int MAX_STEPS=100;
-const float PI=3.14159265359;
-
-// Basic uniforms
-uniform float shape_type;// Now 0-40 range
-uniform float scale;
-uniform float rotation;
-uniform vec3 base_color;
-uniform float time;
-
-// Split variations buffer
-layout(std140)uniform VariationsBuffer1{
-    float variations1[16];
-};
-layout(std140)uniform VariationsBuffer2{
-    float variations2[16];
-};
-layout(std140)uniform VariationsBuffer3{
-    float variations3[8];
-};
-
-float getVariation(int index){
-    if(index<16){
-        return variations1[index];
-    }else if(index<32){
-        return variations2[index-16];
-    }else{
-        return variations3[index-32];
-    }
-}
-
-// helper functions for basic operations
-float smin(float a,float b,float k){
-    float h=max(k-abs(a-b),0.)/k;
-    return min(a,b)-h*h*k*(1./4.);
-}
-
-mat2 rot2D(float angle){
-    float s=sin(angle);
-    float c=cos(angle);
-    return mat2(c,-s,s,c);
-}
-
-vec3 twist(vec3 p,float amount){
-    float c=cos(amount*p.y);
-    float s=sin(amount*p.y);
-    mat2 m=mat2(c,-s,s,c);
-    return vec3(m*p.xz,p.y);
-}
-
-vec3 bend(vec3 p,float amount){
-    float c=cos(amount*p.x);
-    float s=sin(amount*p.x);
-    mat2 m=mat2(c,-s,s,c);
-    return vec3(p.x,m*p.yz);
-}
-// end of helper functions
-
-// Noise functions
-float rand(vec3 p){
-    return fract(sin(dot(p,vec3(12.9898,78.233,45.543)))*43758.5453);
-}
-
-float noise(vec3 p){
-    vec3 i=floor(p);
-    vec3 f=fract(p);
-    f=f*f*(3.-2.*f);
-    
-    return mix(
-        mix(
-            mix(rand(i),rand(i+vec3(1,0,0)),f.x),
-            mix(rand(i+vec3(0,1,0)),rand(i+vec3(1,1,0)),f.x),
-            f.y
-        ),
-        mix(
-            mix(rand(i+vec3(0,0,1)),rand(i+vec3(1,0,1)),f.x),
-            mix(rand(i+vec3(0,1,1)),rand(i+vec3(1,1,1)),f.x),
-            f.y
-        ),
-        f.z
-    );
-}
-// end of noise functions
-
 struct ShapeVariations{
     float size_x;// variations[0]
     float size_y;// variations[1]
@@ -577,230 +485,145 @@ float sdEnhancedShape(vec3 p,ShapeVariations v){
     else if(shape_selector<18.){
         vec3 q=abs(p);
         d=min(min(
-                sdBox(q-vec3(1,0,0),vec3(.2)),
-                sdBox(q-vec3(0,1,0),vec3(.2))),
-                sdBox(q-vec3(0,0,1),vec3(.2)));
-            }
-            else if(shape_selector<19.){
-                float gyroid=dot(sin(p),cos(p.zxy));
-                d=abs(gyroid)-.3;
-            }
-            else if(shape_selector<20.){
-                float menger=sdBox(p,vec3(1.));
-                for(int i=0;i<3;i++){
-                    vec3 q=mod(p*pow(3.,float(i)),2.)-1.;
-                    menger=max(menger,-sdBox(q,vec3(.8)));
-                }
-                d=menger;
-            }
-            else if(shape_selector<21.){
-                vec3 q=p;
-                q.xz=mod(q.xz+1.,2.)-1.;
-                d=sdCylinder(q,vec2(.3,1.));
-            }
-            else if(shape_selector<22.){
-                d=sdSphere(p,1.)+noise(p*5.)*.2;
-            }
-            else if(shape_selector<23.){
-                float weave=sin(p.x*5.)*sin(p.z*5.)*.2;
-                d=sdTorus(p+vec3(0,weave,0),vec2(1.,.2));
-            }
-            else if(shape_selector<24.){
-                vec3 q=p;
-                q.y=mod(q.y+1.,2.)-1.;
-                d=sdBox(q,vec3(.2,.8,.2));
-            }
-            else if(shape_selector<25.){
-                float helix=length(p.xz)-1.+sin(atan(p.z,p.x)*3.+p.y*5.)*.2;
-                d=max(helix,abs(p.y)-1.);
-            }
-            else if(shape_selector<26.){
-                d=sdSphere(p,1.)*(.8+.2*sin(atan(p.z,p.x)*8.));
-            }
-            else if(shape_selector<27.){
-                vec3 q=p;
-                float angle=atan(q.z,q.x);
-                q.xz=mat2(cos(angle*3.),-sin(angle*3.),
-                sin(angle*3.),cos(angle*3.))*q.xz;
-                d=sdBox(q,vec3(.5));
-            }
-            else if(shape_selector<28.){
-                float ripples=sin(length(p.xz)*5.-time)*.2;
-                d=sdCylinder(p+vec3(0,ripples,0),vec2(.8,.3));
-            }
-            else if(shape_selector<29.){
-                vec3 q=p;
-                q.xz*=mat2(cos(q.y),-sin(q.y),sin(q.y),cos(q.y));
-                d=sdBox(q,vec3(.5,1.,.1));
-            }
-            else if(shape_selector<30.){
-                float fractal=1.;
-                vec3 q=p;
-                for(int i=0;i<4;i++){
-                    q=abs(q)-vec3(.3,.5,.3);
-                    q*=1.5;
-                    fractal*=.6;
-                }
-                d=sdBox(q,vec3(.3))*fractal;
-            }
-            else if(shape_selector<31.){
-                float flowers=sin(atan(p.z,p.x)*5.)*.2;
-                d=sdTorus(p+vec3(0,flowers,0),vec2(1.,.2));
-            }
-            else if(shape_selector<32.){
-                vec3 q=p;
-                q.y=abs(q.y);
-                float angle=atan(q.z,q.x);
-                q.xz=mat2(cos(angle*2.),-sin(angle*2.),
-                sin(angle*2.),cos(angle*2.))*q.xz;
-                d=sdBox(q,vec3(.2,1.,.2));
-            }
-            else if(shape_selector<33.){
-                float lattice=sin(p.x*10.)*sin(p.y*10.)*sin(p.z*10.);
-                d=max(sdBox(p,vec3(1.)),lattice);
-            }
-            else if(shape_selector<34.){
-                vec3 q=p;
-                q.xz*=mat2(cos(time),-sin(time),sin(time),cos(time));
-                d=min(sdCone(q,vec2(1,1),1.),
-                sdCone(q*vec3(1,-1,1),vec2(1,1),1.));
-            }
-            else if(shape_selector<35.){
-                float waves=sin(p.x*5.+time)*cos(p.z*5.)*.2;
-                d=sdSphere(p+vec3(0,waves,0),.8);
-            }
-            else if(shape_selector<36.){
-                vec3 q=p;
-                q.y=mod(q.y+2.,4.)-2.;
-                float twist=q.y;
-                q.xz*=mat2(cos(twist),-sin(twist),sin(twist),cos(twist));
-                d=sdBox(q,vec3(.5,.1,.5));
-            }
-            else if(shape_selector<37.){
-                float cells=sin(p.x*8.)*sin(p.y*8.)*sin(p.z*8.);
-                d=max(sdBox(p,vec3(1.)),abs(cells)-.2);
-            }
-            else if(shape_selector<38.){
-                vec3 q=p;
-                float angle=atan(q.z,q.x);
-                q.xz=mat2(cos(angle*5.),-sin(angle*5.),
-                sin(angle*5.),cos(angle*5.))*q.xz;
-                d=sdCapsule(q,vec3(0,-1,0),vec3(0,1,0),.2);
-            }
-            else if(shape_selector<39.){
-                float spiral=atan(p.z,p.x)+length(p.xz)*2.;
-                d=max(sdCylinder(p,vec2(1.,.2)),
-                sin(spiral*3.)*.1);
-            }
-            else{
-                // Shape 40: Complex recursive structure
-                vec3 q=p;
-                float scale=1.;
-                d=sdSphere(q,1.);
-                for(int i=0;i<3;i++){
-                    q=abs(q)-.5;
-                    q*=1.5;
-                    scale*=.5;
-                    d=min(d,sdBox(q,vec3(.2))*scale);
-                }
-            }
-            
-            // Apply hollow effect if needed
-            if(v.hollow_factor>0.){
-                float inner=d+v.hollow_factor;
-                d=max(d,-inner);
-            }
-            
-            // Apply effects
-            d+=sin(length(p.xz)*v.ripple_freq)*v.ripple_amp;
-            d+=sin(time*v.wobble_speed)*v.pulse_amount;
-            
-            return d*scale;
+        sdBox(q-vec3(1,0,0),vec3(.2)),
+        sdBox(q-vec3(0,1,0),vec3(.2))),
+        sdBox(q-vec3(0,0,1),vec3(.2)));
+    }
+    else if(shape_selector<19.){
+        float gyroid=dot(sin(p),cos(p.zxy));
+        d=abs(gyroid)-.3;
+    }
+    else if(shape_selector<20.){
+        float menger=sdBox(p,vec3(1.));
+        for(int i=0;i<3;i++){
+            vec3 q=mod(p*pow(3.,float(i)),2.)-1.;
+            menger=max(menger,-sdBox(q,vec3(.8)));
         }
-        
-        // Ray marching
-        float rayMarch(vec3 ro,vec3 rd){
-            float dO=0.;
-            
-            for(int i=0;i<MAX_STEPS;i++){
-                vec3 p=ro+rd*dO;
-                float dS=sdEnhancedShape(p,getVariations());
-                dO+=dS;
-                if(dS<EPSILON||dO>MAX_DIST)break;
-            }
-            
-            return dO;
+        d=menger;
+    }
+    else if(shape_selector<21.){
+        vec3 q=p;
+        q.xz=mod(q.xz+1.,2.)-1.;
+        d=sdCylinder(q,vec2(.3,1.));
+    }
+    else if(shape_selector<22.){
+        d=sdSphere(p,1.)+noise(p*5.)*.2;
+    }
+    else if(shape_selector<23.){
+        float weave=sin(p.x*5.)*sin(p.z*5.)*.2;
+        d=sdTorus(p+vec3(0,weave,0),vec2(1.,.2));
+    }
+    else if(shape_selector<24.){
+        vec3 q=p;
+        q.y=mod(q.y+1.,2.)-1.;
+        d=sdBox(q,vec3(.2,.8,.2));
+    }
+    else if(shape_selector<25.){
+        float helix=length(p.xz)-1.+sin(atan(p.z,p.x)*3.+p.y*5.)*.2;
+        d=max(helix,abs(p.y)-1.);
+    }
+    else if(shape_selector<26.){
+        d=sdSphere(p,1.)*(.8+.2*sin(atan(p.z,p.x)*8.));
+    }
+    else if(shape_selector<27.){
+        vec3 q=p;
+        float angle=atan(q.z,q.x);
+        q.xz=mat2(cos(angle*3.),-sin(angle*3.),
+        sin(angle*3.),cos(angle*3.))*q.xz;
+        d=sdBox(q,vec3(.5));
+    }
+    else if(shape_selector<28.){
+        float ripples=sin(length(p.xz)*5.-time)*.2;
+        d=sdCylinder(p+vec3(0,ripples,0),vec2(.8,.3));
+    }
+    else if(shape_selector<29.){
+        vec3 q=p;
+        q.xz*=mat2(cos(q.y),-sin(q.y),sin(q.y),cos(q.y));
+        d=sdBox(q,vec3(.5,1.,.1));
+    }
+    else if(shape_selector<30.){
+        float fractal=1.;
+        vec3 q=p;
+        for(int i=0;i<4;i++){
+            q=abs(q)-vec3(.3,.5,.3);
+            q*=1.5;
+            fractal*=.6;
         }
+        d=sdBox(q,vec3(.3))*fractal;
+    }
+    else if(shape_selector<31.){
+        float flowers=sin(atan(p.z,p.x)*5.)*.2;
+        d=sdTorus(p+vec3(0,flowers,0),vec2(1.,.2));
+    }
+    else if(shape_selector<32.){
+        vec3 q=p;
+        q.y=abs(q.y);
+        float angle=atan(q.z,q.x);
+        q.xz=mat2(cos(angle*2.),-sin(angle*2.),
+        sin(angle*2.),cos(angle*2.))*q.xz;
+        d=sdBox(q,vec3(.2,1.,.2));
+    }
+    else if(shape_selector<33.){
+        float lattice=sin(p.x*10.)*sin(p.y*10.)*sin(p.z*10.);
+        d=max(sdBox(p,vec3(1.)),lattice);
+    }
+    else if(shape_selector<34.){
+        vec3 q=p;
+        q.xz*=mat2(cos(time),-sin(time),sin(time),cos(time));
+        d=min(sdCone(q,vec2(1,1),1.),
+        sdCone(q*vec3(1,-1,1),vec2(1,1),1.));
+    }
+    else if(shape_selector<35.){
+        float waves=sin(p.x*5.+time)*cos(p.z*5.)*.2;
+        d=sdSphere(p+vec3(0,waves,0),.8);
+    }
+    else if(shape_selector<36.){
+        vec3 q=p;
+        q.y=mod(q.y+2.,4.)-2.;
+        float twist=q.y;
+        q.xz*=mat2(cos(twist),-sin(twist),sin(twist),cos(twist));
+        d=sdBox(q,vec3(.5,.1,.5));
+    }
+    else if(shape_selector<37.){
+        float cells=sin(p.x*8.)*sin(p.y*8.)*sin(p.z*8.);
+        d=max(sdBox(p,vec3(1.)),abs(cells)-.2);
+    }
+    else if(shape_selector<38.){
+        vec3 q=p;
+        float angle=atan(q.z,q.x);
+        q.xz=mat2(cos(angle*5.),-sin(angle*5.),
+        sin(angle*5.),cos(angle*5.))*q.xz;
+        d=sdCapsule(q,vec3(0,-1,0),vec3(0,1,0),.2);
+    }
+    else if(shape_selector<39.){
+        float spiral=atan(p.z,p.x)+length(p.xz)*2.;
+        d=max(sdCylinder(p,vec2(1.,.2)),
+        sin(spiral*3.)*.1);
+    }
+    else{
+        // Shape 40: Complex recursive structure
+        vec3 q=p;
+        float scale=1.;
+        d=sdSphere(q,1.);
+        for(int i=0;i<3;i++){
+            q=abs(q)-.5;
+            q*=1.5;
+            scale*=.5;
+            d=min(d,sdBox(q,vec3(.2))*scale);
+        }
+    }
+    
+    // Apply hollow effect if needed
+    if(v.hollow_factor>0.){
+        float inner=d+v.hollow_factor;
+        d=max(d,-inner);
+    }
+    
+    // Apply effects
+    d+=sin(length(p.xz)*v.ripple_freq)*v.ripple_amp;
+    d+=sin(time*v.wobble_speed)*v.pulse_amount;
+    
+    return d*scale;
+}
         
-        // Calculate normals
-        vec3 getNormal(vec3 p){
-            vec2 e=vec2(EPSILON,0.);
-            ShapeVariations v=getVariations();
-            return normalize(vec3(
-                    sdEnhancedShape(p+e.xyy,v)-sdEnhancedShape(p-e.xyy,v),
-                    sdEnhancedShape(p+e.yxy,v)-sdEnhancedShape(p-e.yxy,v),
-                    sdEnhancedShape(p+e.yyx,v)-sdEnhancedShape(p-e.yyx,v)
-                ));
-            }
-            
-            // Lighting calculation
-            vec3 lighting(vec3 p,vec3 n,vec3 rd){
-                ShapeVariations v=getVariations();
-                
-                vec3 light_pos=vec3(2.,4.,-3.);
-                vec3 light_color=vec3(1.,.95,.8);
-                
-                vec3 view_dir=-rd;
-                vec3 light_dir=normalize(light_pos-p);
-                vec3 half_dir=normalize(light_dir+view_dir);
-                
-                float diff=max(dot(n,light_dir),0.);
-                float spec=pow(max(dot(n,half_dir),0.),32.);
-                
-                vec3 ambient=base_color*.2;
-                vec3 diffuse=base_color*light_color*diff;
-                vec3 specular=light_color*spec*(1.-v.roughness);
-                
-                return ambient+diffuse+specular;
-            }
-            
-            // Main function
-            void main(){
-                vec2 uv=v_position.xy;
-                
-                // Camera setup
-                float camera_radius=4.;
-                float camera_height=2.;
-                
-                vec3 ro=vec3(
-                    cos(time*.5)*camera_radius,
-                    sin(time*.3)*camera_height,
-                    sin(time*.5)*camera_radius
-                );
-                
-                vec3 lookAt=vec3(0.,0.,0.);
-                vec3 forward=normalize(lookAt-ro);
-                vec3 right=normalize(cross(vec3(0.,1.,0.),forward));
-                vec3 up=cross(forward,right);
-                
-                vec3 rd=normalize(forward+(uv.x*right+uv.y*up)*.7);
-                
-                float d=rayMarch(ro,rd);
-                
-                if(d>MAX_DIST-EPSILON){
-                    color=vec4(.1,.1,.1,1.);// Background color
-                }else{
-                    vec3 p=ro+rd*d;
-                    vec3 n=getNormal(p);
-                    vec3 col=lighting(p,n,rd);
-                    
-                    // Apply fog
-                    float fog=1.-exp(-d*.1);
-                    col=mix(col,vec3(.1),fog);
-                    
-                    // Apply gamma correction
-                    col=pow(col,vec3(1./2.2));
-                    
-                    color=vec4(col,1.);
-                }
-            }
+        

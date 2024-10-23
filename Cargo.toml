@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+blake3 = "1.5.4"
 glium = "0.32"
 nalgebra = "0.32"
 sha2 = "0.10"
