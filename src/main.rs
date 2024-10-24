@@ -61,8 +61,16 @@ fn safe_hash_value(hash: &str, start: usize, length: usize, default: u8) -> u8 {
 fn derive_shape_parameters(
     hash: &str,
 ) -> (f32, f32, f32, [f32; 3], [f32; 16], [f32; 16], [f32; 8]) {
-    // Get basic shape type first as it will influence other parameters
-    let shape_type = (safe_hash_value(hash, 0, 2, 128) as f32 / 255.0) * 40.0;
+    // Get multiple hash values and combine them for better distribution
+    let byte1 = safe_hash_value(hash, 0, 2, 128) as u32;
+    let byte2 = safe_hash_value(hash, 20, 2, 128) as u32;
+    let byte3 = safe_hash_value(hash, 40, 2, 128) as u32;
+
+    // Combine the bytes by simply adding them and scaling
+    let combined = byte1 + byte2 + byte3;
+
+    // Scale the combined result to be within 0.0 to 40.0 range
+    let shape_type = (combined as f32 / (255.0 * 3.0)) * 40.0;
     let shape_index = shape_type as usize;
 
     // Create dramatically different scale ranges based on shape type
@@ -239,21 +247,18 @@ fn main() {
     .expect("Failed to create index buffer");
 
     // we need to combine the fragment_shader which is split into init, helpers, shapes and main into a single string
-    let fragment_shader = include_str!("fragment_shader_init.glsl").to_string()
+    let _fragment_shader = include_str!("fragment_shader_init.glsl").to_string()
         + "\n"
         + include_str!("fragment_shader_helpers.glsl")
         + "\n"
         + include_str!("fragment_shader_shapes.glsl")
         + "\n"
         + include_str!("fragment_shader_main.glsl");
+    let debug = include_str!("debug.glsl");
 
-    let program = glium::Program::from_source(
-        &display,
-        include_str!("vertex_shader.glsl"),
-        &fragment_shader,
-        None,
-    )
-    .expect("Failed to create shader program");
+    let program =
+        glium::Program::from_source(&display, include_str!("vertex_shader.glsl"), &debug, None)
+            .expect("Failed to create shader program");
 
     let mut time = 0.0f32;
 
@@ -272,6 +277,9 @@ fn main() {
 
                 let mut target = display.draw();
                 target.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
+
+                // log the shape type
+                println!("Shape type: {}", shape_type);
 
                 let uniforms = uniform! {
                     shape_type: shape_type,
