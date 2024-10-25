@@ -1,225 +1,47 @@
-extern crate glium;
+mod chain_code;
 
-use glium::glutin::event::{Event, WindowEvent};
-use glium::glutin::event_loop::{ControlFlow, EventLoop};
-use glium::glutin::window::WindowBuilder;
-use glium::uniforms::UniformBuffer;
-use glium::{glutin, implement_vertex, uniform, Surface};
-//use sha2::{Digest, Sha256};
+use chain_code::ChainCodeGenerator;
+use glium::{glutin, uniform, Surface};
 use structopt::StructOpt;
 
 #[derive(StructOpt)]
-struct Cli {
-    /// The input string to derive the shape
+#[structopt(
+    name = "shape-generator",
+    about = "Generate 3D shapes from input string"
+)]
+struct Opt {
+    /// Input string to generate shape from
+    #[structopt(name = "INPUT")]
     input: String,
+
+    /// Grid size for the chain code (default: 0.1)
+    #[structopt(long, default_value = "0.1")]
+    grid_size: f32,
+
+    /// Window width
+    #[structopt(long, default_value = "800")]
+    width: u32,
+
+    /// Window height
+    #[structopt(long, default_value = "600")]
+    height: u32,
 }
 
-#[derive(Copy, Clone)]
-struct Vertex {
-    position: [f32; 2],
-}
-implement_vertex!(Vertex, position);
-
-fn create_full_screen_quad() -> (Vec<Vertex>, Vec<u16>) {
-    let vertices = vec![
-        Vertex {
-            position: [-1.0, -1.0],
-        },
-        Vertex {
-            position: [1.0, -1.0],
-        },
-        Vertex {
-            position: [1.0, 1.0],
-        },
-        Vertex {
-            position: [-1.0, 1.0],
-        },
-    ];
-
-    let indices = vec![0, 1, 2, 2, 3, 0];
-
-    (vertices, indices)
-}
-
-fn hash_input(input: &str) -> String {
-    //let mut hasher = Sha256::new();
-    //hasher.update(input);
-    //format!("{:x}", hasher.finalize())
-
-    let hash1 = blake3::hash(input.as_bytes());
-    hash1.to_hex().to_string()
-}
-
-fn safe_hash_value(hash: &str, start: usize, length: usize, default: u8) -> u8 {
-    if start + length <= hash.len() {
-        u8::from_str_radix(&hash[start..start + length], 16).unwrap_or(default)
-    } else {
-        default
-    }
-}
-
-fn derive_shape_parameters(
-    hash: &str,
-) -> (f32, f32, f32, [f32; 3], [f32; 16], [f32; 16], [f32; 8]) {
-    // Get multiple hash values and combine them for better distribution
-    let byte1 = safe_hash_value(hash, 0, 2, 128) as u32;
-    let byte2 = safe_hash_value(hash, 20, 2, 128) as u32;
-    let byte3 = safe_hash_value(hash, 40, 2, 128) as u32;
-
-    // Combine the bytes by simply adding them and scaling
-    let combined = byte1 + byte2 + byte3;
-
-    // Scale the combined result to be within 0.0 to 40.0 range
-    let shape_type = (combined as f32 / (255.0 * 3.0)) * 40.0;
-    let shape_index = shape_type as usize;
-
-    // Create dramatically different scale ranges based on shape type
-    let scale_raw = safe_hash_value(hash, 2, 2, 128) as f32 / 255.0;
-    let scale = match shape_index % 5 {
-        0 => 0.3 + scale_raw * 0.7,                   // Smaller variations
-        1 => 1.0 + scale_raw * 2.0,                   // Larger variations
-        2 => 0.5 + scale_raw * scale_raw * 3.0,       // Exponential scaling
-        3 => 1.0 / (0.5 + scale_raw),                 // Inverse scaling
-        _ => 0.8 + (scale_raw - 0.5).powf(3.0) * 2.0, // Cubic scaling
-    };
-
-    // Varied rotation patterns
-    let rot_base = safe_hash_value(hash, 4, 2, 128) as f32 / 255.0;
-    let rotation = match shape_index % 4 {
-        0 => rot_base * 720.0,                                // Double rotation
-        1 => rot_base * rot_base * 360.0,                     // Quadratic rotation
-        2 => (rot_base * std::f32::consts::PI).sin() * 360.0, // Sinusoidal
-        _ => rot_base * 360.0,                                // Linear rotation
-    };
-
-    // More varied color generation
-    let hue = safe_hash_value(hash, 6, 2, 128) as f32 / 255.0;
-    let sat = 0.5 + (safe_hash_value(hash, 8, 2, 128) as f32 / 255.0) * 0.5;
-    let val = 0.4 + (safe_hash_value(hash, 10, 2, 128) as f32 / 255.0) * 0.6;
-    let [r, g, b] = hsv_to_rgb(hue, sat, val);
-
-    let mut variations1 = [0.0; 16];
-    let mut variations2 = [0.0; 16];
-    let mut variations3 = [0.0; 8];
-
-    // Shape-specific variation patterns
-    let shape_category = shape_index / 5; // Group shapes into categories
-
-    // Fill variations1 with shape-dependent distributions
-    for i in 0..16 {
-        let base = safe_hash_value(hash, 12 + i * 2, 2, 128) as f32 / 255.0;
-
-        variations1[i] = match shape_category {
-            0 => {
-                // Geometric primitives (spheres, boxes, etc.)
-                match i {
-                    0..=2 => 0.5 + (base - 0.5).powf(3.0) * 2.0, // Dramatic size changes
-                    3..=4 => base * base * 3.0,                  // Strong deformation
-                    _ => base.powf(0.3),                         // Subtle other parameters
-                }
-            }
-            1 => {
-                // Complex shapes (fractals, etc.)
-                match i {
-                    0..=2 => 0.3 + base * 1.7,                  // Wide size range
-                    3..=6 => ((base * 6.28).sin() + 1.0) * 0.8, // Oscillating deformations
-                    _ => base.sqrt() * 2.0,                     // Moderate other params
-                }
-            }
-            2 => {
-                // Organic shapes
-                match i {
-                    0..=2 => 1.0 - (1.0 - base * base) * 0.8, // Inverse square scaling
-                    3..=8 => 0.2 + (base * std::f32::consts::PI).sin() * 0.8, // Sinusoidal variation
-                    _ => base.powf(1.5), // Enhanced other parameters
-                }
-            }
-            3 => {
-                // Mechanical shapes
-                match i {
-                    0..=2 => (base * 4.0).floor() / 3.0, // Quantized sizes
-                    3..=6 => base.powf(0.3) * 1.5,       // Strong deformations
-                    _ => 0.2 + base * 0.8,               // Linear other params
-                }
-            }
-            _ => {
-                // Abstract shapes
-                match i {
-                    0..=4 => ((base * 8.0).sin() + 1.0) / 2.0 * 2.0, // Highly oscillating
-                    5..=8 => base.powf(2.0) * 2.0,                   // Quadratic scaling
-                    _ => 0.3 + (base * base * base) * 0.7,           // Cubic other params
-                }
-            }
-        };
-    }
-
-    // Fill variations2 with contrasting patterns
-    for i in 0..16 {
-        let base = safe_hash_value(hash, 44 + i * 2, 2, 128) as f32 / 255.0;
-        let phase = base * std::f32::consts::PI * 2.0;
-
-        variations2[i] = match shape_category {
-            0 => 1.0 - variations1[i],             // Inverse of variations1
-            1 => (phase.sin() + 1.0) / 2.0 * 1.5,  // Sinusoidal
-            2 => base.powf(0.5) * 2.0,             // Square root
-            3 => (base * 4.0).floor() / 3.0,       // Quantized
-            _ => ((base * 6.0).sin() + 1.0) / 2.0, // High-frequency oscillation
-        };
-    }
-
-    // Fill variations3 with fine detail modulations
-    for i in 0..8 {
-        let base = safe_hash_value(hash, 76 + i * 2, 2, 128) as f32 / 255.0;
-        let multiplier = 1.0 + (shape_index as f32 * 0.1); // Shape-dependent scaling
-
-        variations3[i] = match i {
-            0..=2 => base.powf(0.3) * multiplier, // Stronger effect for higher indices
-            3..=5 => ((base * 8.0).sin() + 1.0) / 2.0 * multiplier,
-            _ => (0.2 + base * 0.8) * multiplier,
-        };
-    }
-
-    (
-        shape_type,
-        scale,
-        rotation,
-        [r, g, b],
-        variations1,
-        variations2,
-        variations3,
-    )
-}
-
-fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
-    let c = v * s;
-    let h = h * 6.0;
-    let x = c * (1.0 - ((h % 2.0) - 1.0).abs());
-    let m = v - c;
-
-    let (r, g, b) = match h as i32 {
-        0 | 6 => (c, x, 0.0),
-        1 => (x, c, 0.0),
-        2 => (0.0, c, x),
-        3 => (0.0, x, c),
-        4 => (x, 0.0, c),
-        5 => (c, 0.0, x),
-        _ => (0.0, 0.0, 0.0),
-    };
-
-    [r + m, g + m, b + m]
-}
 fn main() {
-    let args = Cli::from_args();
-    let hash = hash_input(&args.input);
+    let opt = Opt::from_args();
 
-    let (shape_type, scale, rotation, base_color, vars1, vars2, vars3) =
-        derive_shape_parameters(&hash);
+    // Hash the input string
+    let hash = blake3::hash(opt.input.as_bytes());
+    let bytes = hash.as_bytes();
 
-    let event_loop = EventLoop::new();
-    let wb = WindowBuilder::new()
-        .with_title("Shape Generator")
-        .with_inner_size(glutin::dpi::LogicalSize::new(800.0, 600.0))
-        .with_transparent(true);
+    // Create window and context
+    let event_loop = glutin::event_loop::EventLoop::new();
+    let wb = glutin::window::WindowBuilder::new()
+        .with_inner_size(glutin::dpi::LogicalSize::new(
+            opt.width as f64,
+            opt.height as f64,
+        ))
+        .with_title("Shape Generator");
 
     let cb = glutin::ContextBuilder::new()
         .with_depth_buffer(24)
@@ -227,16 +49,37 @@ fn main() {
 
     let display = glium::Display::new(wb, cb, &event_loop).expect("Failed to create display");
 
-    // Create the uniform buffers for variations
-    let variations_buffer1 =
-        UniformBuffer::new(&display, vars1).expect("Failed to create variations buffer 1");
-    let variations_buffer2 =
-        UniformBuffer::new(&display, vars2).expect("Failed to create variations buffer 2");
-    let variations_buffer3 =
-        UniformBuffer::new(&display, vars3).expect("Failed to create variations buffer 3");
+    // Initialize generator
+    let bounds = ([-0.8, -0.8, -0.8], [0.8, 0.8, 0.8]);
+    let mut generator = ChainCodeGenerator::new(opt.grid_size, bounds);
 
-    // Rest of setup...
-    let (vertices, indices) = create_full_screen_quad();
+    // Generate geometry
+    let (vertices, indices) = generator.generate(bytes);
+
+    println!(
+        "Generated {} vertices and {} indices",
+        vertices.len(),
+        indices.len()
+    );
+
+    // Debug print first few vertices
+    println!("First 5 vertices:");
+    for i in 0..5.min(vertices.len()) {
+        println!(
+            "Vertex {}: pos={:?}, normal={:?}, color={:?}",
+            i, vertices[i].position, vertices[i].normal, vertices[i].color
+        );
+    }
+
+    println!("First 15 indices:");
+    for i in 0..15.min(indices.len()) {
+        print!("{} ", indices[i]);
+        if (i + 1) % 3 == 0 {
+            println!();
+        }
+    }
+
+    // Create vertex and index buffers
     let vertex_buffer =
         glium::VertexBuffer::new(&display, &vertices).expect("Failed to create vertex buffer");
     let index_buffer = glium::IndexBuffer::new(
@@ -246,50 +89,68 @@ fn main() {
     )
     .expect("Failed to create index buffer");
 
-    // we need to combine the fragment_shader which is split into init, helpers, shapes and main into a single string
-    let _fragment_shader = include_str!("fragment_shader_init.glsl").to_string()
-        + "\n"
-        + include_str!("fragment_shader_helpers.glsl")
-        + "\n"
-        + include_str!("fragment_shader_shapes.glsl")
-        + "\n"
-        + include_str!("fragment_shader_main.glsl");
-    let debug = include_str!("debug.glsl");
-
-    let program =
-        glium::Program::from_source(&display, include_str!("vertex_shader.glsl"), &debug, None)
-            .expect("Failed to create shader program");
+    // Create shader program
+    let program = glium::Program::from_source(
+        &display,
+        include_str!("shaders/vertex.glsl"),
+        include_str!("shaders/fragment.glsl"),
+        None,
+    )
+    .expect("Failed to create shader program");
 
     let mut time = 0.0f32;
 
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
-
         match event {
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => {
-                *control_flow = ControlFlow::Exit;
-            }
-            Event::MainEventsCleared => {
-                time += 0.01;
+            glutin::event::Event::WindowEvent { event, .. } => match event {
+                glutin::event::WindowEvent::CloseRequested => {
+                    *control_flow = glutin::event_loop::ControlFlow::Exit;
+                    return;
+                }
+                _ => return,
+            },
+            glutin::event::Event::MainEventsCleared => {
+                // Update camera
+                let camera_angle = time * 0.5;
+                let camera_pos = [2.5 * camera_angle.cos(), 1.2, 2.5 * camera_angle.sin()];
 
+                println!("Camera angle: {:.2}, pos: {:?}", camera_angle, camera_pos);
+
+                let view = view_matrix(
+                    camera_pos,
+                    [0.0, 0.0, 0.0], // Look at center
+                    [0.0, 1.0, 0.0], // Up vector
+                );
+
+                let perspective = {
+                    let (width, height) = display.get_framebuffer_dimensions();
+                    let aspect_ratio = width as f32 / height as f32;
+                    let fov: f32 = std::f32::consts::PI / 3.0;
+                    let znear = 0.1;
+                    let zfar = 10.0;
+
+                    [
+                        [1.0 / (aspect_ratio * (fov / 2.0).tan()), 0.0, 0.0, 0.0],
+                        [0.0, 1.0 / (fov / 2.0).tan(), 0.0, 0.0],
+                        [0.0, 0.0, (zfar + znear) / (zfar - znear), 1.0],
+                        [0.0, 0.0, -(2.0 * zfar * znear) / (zfar - znear), 0.0],
+                    ]
+                };
+
+                let matrix = multiply_matrix(perspective, view);
+
+                // Draw frame
                 let mut target = display.draw();
-                target.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
+                target.clear_color_and_depth((0.1, 0.1, 0.1, 1.0), 1.0);
 
-                // log the shape type
-                println!("Shape type: {}", shape_type);
-
-                let uniforms = uniform! {
-                    shape_type: shape_type,
-                    scale: scale,
-                    rotation: rotation,
-                    base_color: base_color,
-                    variations_buffer1: &variations_buffer1,
-                    variations_buffer2: &variations_buffer2,
-                    variations_buffer3: &variations_buffer3,
-                    time: time,
+                let params = glium::DrawParameters {
+                    depth: glium::Depth {
+                        test: glium::draw_parameters::DepthTest::IfLess,
+                        write: true,
+                        ..Default::default()
+                    },
+                    backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
+                    ..Default::default()
                 };
 
                 target
@@ -297,16 +158,75 @@ fn main() {
                         &vertex_buffer,
                         &index_buffer,
                         &program,
-                        &uniforms,
-                        &Default::default(),
+                        &uniform! {
+                            matrix: matrix,
+                            time: time,
+                        },
+                        &params,
                     )
                     .unwrap();
 
                 target.finish().unwrap();
 
-                display.gl_window().window().request_redraw();
+                time += 0.016;
             }
             _ => (),
         }
+
+        *control_flow = glutin::event_loop::ControlFlow::Poll;
     });
+}
+fn view_matrix(position: [f32; 3], direction: [f32; 3], up: [f32; 3]) -> [[f32; 4]; 4] {
+    let f = {
+        let f = [
+            direction[0] - position[0],
+            direction[1] - position[1],
+            direction[2] - position[2],
+        ];
+        let len = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
+        let len = len.sqrt();
+        [f[0] / len, f[1] / len, f[2] / len]
+    };
+
+    let s = [
+        up[1] * f[2] - up[2] * f[1],
+        up[2] * f[0] - up[0] * f[2],
+        up[0] * f[1] - up[1] * f[0],
+    ];
+
+    let s_norm = {
+        let len = s[0] * s[0] + s[1] * s[1] + s[2] * s[2];
+        let len = len.sqrt();
+        [s[0] / len, s[1] / len, s[2] / len]
+    };
+
+    let u = [
+        f[1] * s_norm[2] - f[2] * s_norm[1],
+        f[2] * s_norm[0] - f[0] * s_norm[2],
+        f[0] * s_norm[1] - f[1] * s_norm[0],
+    ];
+
+    let p = [
+        -position[0] * s_norm[0] - position[1] * s_norm[1] - position[2] * s_norm[2],
+        -position[0] * u[0] - position[1] * u[1] - position[2] * u[2],
+        -position[0] * f[0] - position[1] * f[1] - position[2] * f[2],
+    ];
+
+    [
+        [s_norm[0], u[0], f[0], 0.0],
+        [s_norm[1], u[1], f[1], 0.0],
+        [s_norm[2], u[2], f[2], 0.0],
+        [p[0], p[1], p[2], 1.0],
+    ]
+}
+
+fn multiply_matrix(a: [[f32; 4]; 4], b: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
+    let mut result = [[0.0; 4]; 4];
+    for i in 0..4 {
+        for j in 0..4 {
+            result[i][j] =
+                a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j] + a[i][3] * b[3][j];
+        }
+    }
+    result
 }
