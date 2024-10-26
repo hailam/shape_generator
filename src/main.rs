@@ -38,21 +38,12 @@ struct ShaderManager {
 
 impl ShaderManager {
     fn new(display: &glium::Display) -> Result<Self, glium::ProgramCreationError> {
-        let vertex_shader = r#"
-            #version 140
-            
-            in vec2 position;
-            out vec2 v_position;
-            
-            void main() {
-                v_position = position;
-                gl_Position = vec4(position, 0.0, 1.0);
-            }
-        "#;
-
-        let fragment_shader = include_str!("shaders/fragment.glsl");
-
-        let program = Program::from_source(display, vertex_shader, fragment_shader, None)?;
+        let program = Program::from_source(
+            display,
+            include_str!("shaders/vertex.glsl"),
+            include_str!("shaders/fragment.glsl"),
+            None,
+        )?;
 
         Ok(Self {
             program,
