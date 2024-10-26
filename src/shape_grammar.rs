@@ -89,7 +89,12 @@ impl ShapeGrammar {
         match params.shape_type as usize {
             0 => BaseShape::Sphere,
             1 => BaseShape::Box,
-            _ => BaseShape::Cylinder,
+            2 => BaseShape::Torus,
+            3 => BaseShape::Cylinder,
+            4 => BaseShape::Cone,
+            5 => BaseShape::Capsule,
+            6 => BaseShape::Prism,
+            _ => BaseShape::Torus,
         }
     }
 
@@ -117,10 +122,5 @@ impl ShapeGrammar {
         }
 
         modifiers
-    }
-
-    pub fn generate_sdf_code(&self) -> String {
-        // Implement SDF code generation based on the grammar
-        String::from("// SDF code generation not implemented yet")
     }
 }
