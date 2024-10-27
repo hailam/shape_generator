@@ -125,11 +125,13 @@ impl ShaderManager {
 
             // Transform parameters
             shape_scale: [base_scale, base_scale, base_scale],
-            shape_rotation: [
-                params.rotation * std::f32::consts::PI / 180.0,
-                params.rotation * std::f32::consts::PI / 90.0,
-                params.rotation * std::f32::consts::PI / 45.0,
-            ],
+            shape_rotation_x: params.rotation[0] * std::f32::consts::PI / 180.0,
+            shape_rotation_y: params.rotation[1] * std::f32::consts::PI / 180.0,
+            shape_rotation_z: params.rotation[2] * std::f32::consts::PI / 180.0,
+            shape_rotation_w: params.rotation[3] * std::f32::consts::PI / 180.0,
+
+            // Golden ratio factors for modifiers
+            golden_factors: params.golden_ratio_factors,
 
             // Material properties
             metallic: 0.3f32 + var1_vec4s[0][0] * 0.4,

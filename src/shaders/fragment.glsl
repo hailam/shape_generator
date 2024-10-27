@@ -37,6 +37,13 @@ uniform vec3 light_color_1;
 uniform vec3 light_color_2;
 uniform vec3 light_color_3;
 
+// Golden ratio
+uniform float shape_rotation_x;
+uniform float shape_rotation_y;
+uniform float shape_rotation_z;
+uniform float shape_rotation_w;
+uniform float[4] golden_factors;
+
 const float PI = 3.14159265359;
 const float PHI = 1.61803398875;
 const float TAU = PI * 2.0;
@@ -69,6 +76,16 @@ mat3 rotateZ(float angle) {
         c, -s, 0.0,
         s, c, 0.0,
         0.0, 0.0, 1.0
+    );
+}
+
+mat3 rotateW(float angle) {
+    float s = sin(angle);
+    float c = cos(angle);
+    return mat3(
+        c, -s * 0.5, s * 0.866,
+        s * 0.5, c, -s * 0.866,
+        -s * 0.866, s * 0.866, c
     );
 }
 
@@ -161,13 +178,24 @@ float applyVariations(vec3 p, float d) {
 }
 
 float sdf(vec3 p) {
+    // Constants for scale normalization
+    const float TARGET_SCALE = 0.6;  // Desired consistent size
+    const float MIN_SCALE = 0.4;
+    const float MAX_SCALE = 0.8;
+
     // Apply time-based animation
     float slowTime = time * speed * 0.1;
-    p = rotateY(slowTime) * rotateX(sin(slowTime * 0.5)) * rotateZ(cos(slowTime * 0.3)) * p;
     
     // Apply shape scale and rotation
-    p = rotateX(shape_rotation.x) * rotateY(shape_rotation.y) * rotateZ(shape_rotation.z) * p;
-    p /= shape_scale;
+    //p = rotateX(shape_rotation.x) * rotateY(shape_rotation.y) * rotateZ(shape_rotation.z) * p;
+    //p = rotateY(slowTime) * rotateX(sin(slowTime * 0.5)) * rotateZ(cos(slowTime * 0.3)) * p;
+    //p /= shape_scale;
+
+    // Use all four rotation angles for more complex but harmonious rotation
+    p = rotateX(shape_rotation_x + slowTime * golden_factors[0]) * 
+        rotateY(shape_rotation_y + slowTime * golden_factors[1]) * 
+        rotateZ(shape_rotation_z + slowTime * golden_factors[2]) * 
+        rotateW(shape_rotation_w + slowTime * golden_factors[3]) * p;
     
     // Base shape
     float d = 1e10;
@@ -179,12 +207,13 @@ float sdf(vec3 p) {
         d = sdCylinder(p, vec2(base_radius, base_radius * 2.0));
     }
     
-    // Apply modifiers
+    // Apply modifiers with golden ratio factors
     for(int i = 0; i < modifier_count && i < 4; i++) {
+        float factor = golden_factors[i];
         if (modifier_types[i] == 0) { // Twist
-            p = twist(p, modifier_params[i]);
+            p = twist(p, modifier_params[i] * factor);
         } else if (modifier_types[i] == 1) { // Bend
-            p = bend(p, modifier_params[i]);
+            p = bend(p, modifier_params[i] * factor);
         }
     }
 
@@ -195,12 +224,15 @@ float sdf(vec3 p) {
     // Apply variations
     d = applyVariations(p, d);
     
-    // Scale back
-    d *= min(shape_scale.x, min(shape_scale.y, shape_scale.z));
-
+    // Calculate current bounds
+    float boundingRadius = length(p) - d;
     
+    // Normalize scale to target size
+    float normalizedScale = mix(MIN_SCALE, MAX_SCALE, 
+        smoothstep(MIN_SCALE, MAX_SCALE, boundingRadius));
+    float scaleFactor = TARGET_SCALE / normalizedScale;
     
-    return d;
+    return d * scaleFactor;
 }
 
 vec3 calcNormal(vec3 p) {
@@ -241,7 +273,7 @@ vec3 calcLight(vec3 lightPos, vec3 lightColor, vec3 hitPos, vec3 N, vec3 V) {
 
 void main() {
      // Camera setup
-    vec3 cameraPos = vec3(0.0, 0.0, 0.8);
+    vec3 cameraPos = vec3(0.0, 0.0, 0.9);
     vec3 cameraTarget = vec3(0.0, 0.0, 0.0);
     vec3 cameraUp = vec3(0.0, 1.0, 0.0);
     
