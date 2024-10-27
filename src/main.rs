@@ -36,6 +36,12 @@ struct ShaderManager {
     start_time: Instant,
 }
 
+struct ViewState {
+    main_time: f32,
+    frozen_time: f32,
+    frozen_enabled: bool,
+}
+
 impl ShaderManager {
     fn new(display: &glium::Display) -> Result<Self, glium::ProgramCreationError> {
         let program = Program::from_source(
@@ -51,9 +57,17 @@ impl ShaderManager {
         })
     }
 
-    fn update_uniforms(&self, shape_grammar: &ShapeGrammar) -> impl glium::uniforms::Uniforms {
+    fn update_uniforms(
+        &self,
+        shape_grammar: &ShapeGrammar,
+        view_state: &ViewState,
+    ) -> impl glium::uniforms::Uniforms {
         let params = &shape_grammar.parameters;
-        let time = self.start_time.elapsed().as_secs_f32();
+        let current_time = if view_state.frozen_enabled {
+            view_state.frozen_time
+        } else {
+            view_state.main_time
+        };
 
         // Scale the base radius to keep shapes in view
         let base_scale = 0.3 + (params.scale * 0.2);
@@ -66,14 +80,14 @@ impl ShaderManager {
         for i in 0..4 {
             for j in 0..4 {
                 let idx = i * 4 + j;
-                var1_vec4s[i][j] = params.variations[0][idx] * 0.5; // Reduce variation intensity
+                var1_vec4s[i][j] = params.variations[0][idx] * 0.5;
                 var2_vec4s[i][j] = params.variations[1][idx] * 0.3;
                 var3_vec4s[i][j] = params.variations[2][idx] * 0.2;
             }
         }
 
         // Animate light positions
-        let light_rotation = time * 0.2;
+        let light_rotation = current_time * 0.2;
         let main_light_pos = [
             2.0 * f32::cos(light_rotation),
             2.0,
@@ -82,8 +96,11 @@ impl ShaderManager {
 
         uniform! {
             // Time and animation
-            time: time,
+            time: current_time,
             speed: 0.2f32,
+
+            view_scale: if view_state.frozen_enabled { 1.0f32 } else { 0.3f32 },
+            view_offset: if view_state.frozen_enabled { [0.0f32, 0.0f32] } else { [0.7f32, 0.7f32] },
 
             // Base shape parameters
             base_shape_type: match shape_grammar.base_shape {
@@ -149,7 +166,6 @@ impl ShaderManager {
             light_color_1: [0.4f32, 0.5, 0.6],    // Fill light (cool)
             light_color_2: [0.5f32, 0.5, 0.6],    // Rim light (neutral)
             light_color_3: [0.6f32, 0.6, 0.6],    // Top light (neutral)
-
 
             // Modifier parameters
             modifier_count: shape_grammar.modifiers.len() as i32,
@@ -243,11 +259,15 @@ fn create_buffers(
 fn main() {
     let cli = Cli::from_args();
 
+    // Get the last byte from the hash for frozen time
+    let hash = blake3::hash(cli.input.as_bytes());
+    let hash_bytes = hash.as_bytes();
+    let last_byte = hash_bytes[hash_bytes.len() - 1];
+    let frozen_time = (last_byte as f32 / 255.0) * 10.0;
+
     let event_loop = EventLoop::new();
     let display = create_display(&event_loop, &cli);
-
     let shader_manager = ShaderManager::new(&display).expect("Failed to create shader manager");
-
     let shape_grammar = ShapeGrammar::from_hash(&cli.input);
     let (vertex_buffer, index_buffer) = create_buffers(&display);
 
@@ -259,6 +279,12 @@ fn main() {
         },
         backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
         ..Default::default()
+    };
+
+    let mut view_state = ViewState {
+        main_time: 0.0,
+        frozen_time,
+        frozen_enabled: false,
     };
 
     event_loop.run(move |event, _, control_flow| {
@@ -275,8 +301,25 @@ fn main() {
                 let mut target = display.draw();
                 target.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
 
-                let uniforms = shader_manager.update_uniforms(&shape_grammar);
+                // Update main time
+                view_state.main_time = shader_manager.start_time.elapsed().as_secs_f32();
 
+                // Draw frozen view in center
+                view_state.frozen_enabled = true;
+                let frozen_uniforms = shader_manager.update_uniforms(&shape_grammar, &view_state);
+                target
+                    .draw(
+                        &vertex_buffer,
+                        &index_buffer,
+                        &shader_manager.program,
+                        &frozen_uniforms,
+                        &draw_parameters,
+                    )
+                    .unwrap();
+
+                // Draw animated view in corner
+                view_state.frozen_enabled = false;
+                let uniforms = shader_manager.update_uniforms(&shape_grammar, &view_state);
                 target
                     .draw(
                         &vertex_buffer,
